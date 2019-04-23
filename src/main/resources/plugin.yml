@@ -1,0 +1,10 @@
+name: ${project.name}
+main: fr.keke142.hypercraftupdater.HypercraftUpdaterPlugin
+version: ${project.version}
+author: keke142
+depend:
+  - FastAsyncWorldEdit
+  - WorldGuard
+commands:
+  convertmyworld:
+    default: op
