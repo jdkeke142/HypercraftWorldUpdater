@@ -1,4 +1,4 @@
-package fr.keke142.hypercraftupdater;
+package fr.keke142.worldupdater;
 
 
 import com.boydti.fawe.jnbt.anvil.MCAFile;
@@ -27,11 +27,11 @@ import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 
 public class ConvertMyWorldCommand implements CommandExecutor {
-    private HypercraftUpdaterPlugin plugin;
+    private WorldUpdaterPlugin plugin;
     private Set<BlockVector2> blacklistedRegions = new HashSet<>();
     private Set<BlockVector2> blacklistedChunks = new HashSet<>();
 
-    public ConvertMyWorldCommand(HypercraftUpdaterPlugin plugin) {
+    public ConvertMyWorldCommand(WorldUpdaterPlugin plugin) {
         this.plugin = plugin;
     }
 

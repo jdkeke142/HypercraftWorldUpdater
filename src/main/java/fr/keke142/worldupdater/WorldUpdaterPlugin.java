@@ -1,9 +1,9 @@
-package fr.keke142.hypercraftupdater;
+package fr.keke142.worldupdater;
 
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public class HypercraftUpdaterPlugin extends JavaPlugin {
+public class WorldUpdaterPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
