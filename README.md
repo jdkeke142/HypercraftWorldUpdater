@@ -7,5 +7,5 @@ The chunks deletion can be long, and it could bring your server to time out, to 
 
 This plugin require WorldGuard and FastAsyncWorldEdit to work properly.
 
-Attention! Please make a backup of your world before using this command, I will not be responsible for any damage caused on your map if you do not do this!
+Attention! Please make a backup of your world before using this command, I will not be responsible for any damage caused on your world if you do not do this!
 
