@@ -4,7 +4,6 @@ version: ${project.version}
 author: keke142
 depend:
   - FastAsyncWorldEdit
-  - WorldGuard
 commands:
   convertmyworld:
     default: op

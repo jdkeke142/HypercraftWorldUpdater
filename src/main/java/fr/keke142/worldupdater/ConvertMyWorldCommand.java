@@ -4,29 +4,32 @@ package fr.keke142.worldupdater;
 import com.boydti.fawe.jnbt.anvil.MCAFile;
 import com.boydti.fawe.jnbt.anvil.MCAFilter;
 import com.boydti.fawe.jnbt.anvil.MCAQueue;
-import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.math.BlockVector2;
 import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.world.storage.ChunkStore;
 import com.sk89q.worldguard.WorldGuard;
-import com.sk89q.worldguard.protection.managers.RegionManager;
-import com.sk89q.worldguard.protection.regions.ProtectedRegion;
-import com.sk89q.worldguard.protection.regions.RegionContainer;
+import fr.keke142.worldupdater.providers.GriefPreventionRegionProvider;
+import fr.keke142.worldupdater.providers.WorldGuardRegionProvider;
+import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.PluginManager;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 
 public class ConvertMyWorldCommand implements CommandExecutor {
+    private static final int REGION_SHIFTS = 5;
+    private static final int CHUNK_SHIFTS = 4;
+    private static final int WORLD_MIN_Y = 0;
+    private static final int WORLD_MAX_Y = 256;
     private WorldUpdaterPlugin plugin;
     private Set<BlockVector2> blacklistedRegions = new HashSet<>();
     private Set<BlockVector2> blacklistedChunks = new HashSet<>();
@@ -38,7 +41,7 @@ public class ConvertMyWorldCommand implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length < 1) {
-            sender.sendMessage("Please provide a world name !");
+            sender.sendMessage(ChatColor.RED + "Please provide a world name !");
             return false;
         }
 
@@ -47,103 +50,113 @@ public class ConvertMyWorldCommand implements CommandExecutor {
         World world = Bukkit.getWorld(worldName);
 
         if (world == null) {
-            sender.sendMessage("This world not exists !");
+            sender.sendMessage(ChatColor.RED + "This world not exists !");
             return false;
         }
 
-        com.sk89q.worldedit.world.World weWorld = BukkitAdapter.adapt(world);
+        RegionProvider regionProvider;
 
-        sender.sendMessage("Deleting all chunks that are not touch WG region using FastAsyncWorldEdit FaweQueue...");
+        PluginManager pluginManager = plugin.getPluginManager();
 
-        RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
-        RegionManager regionManager = container.get(weWorld);
-
-        if (regionManager == null) {
-            sender.sendMessage("Unable to resolve WorldGuard RegionManager for this world !");
+        if (pluginManager.isPluginEnabled("WorldGuard")) {
+            regionProvider = new WorldGuardRegionProvider(WorldGuard.getInstance());
+            sender.sendMessage(ChatColor.GREEN + "Using WorldGuard as region provider.");
+        } else if (pluginManager.isPluginEnabled("GriefPrevention")) {
+            regionProvider = new GriefPreventionRegionProvider(GriefPrevention.instance);
+            sender.sendMessage(ChatColor.GREEN + "Using GriefPrevention as region provider.");
+        } else {
+            sender.sendMessage(ChatColor.RED + "Unable to find any region provider !");
             return false;
         }
 
-        Map<String, ProtectedRegion> regions = regionManager.getRegions();
+        try {
+            Set<UpdaterRegion> regions = regionProvider.getWorldRegions(world);
 
-        regions.forEach((id, region) -> {
+            regions.forEach(region -> {
 
-            BlockVector3 min = region.getMinimumPoint().withY(0);
-            BlockVector3 max = region.getMaximumPoint().withY(256);
+                BlockVector3 min = region.getMinimumPoint().withY(WORLD_MIN_Y);
+                BlockVector3 max = region.getMaximumPoint().withY(WORLD_MAX_Y);
 
-            for (int x = min.getBlockX() >> ChunkStore.CHUNK_SHIFTS; x <= max.getBlockX() >> ChunkStore.CHUNK_SHIFTS; ++x) {
-                for (int z = min.getBlockZ() >> ChunkStore.CHUNK_SHIFTS; z <= max.getBlockZ() >> ChunkStore.CHUNK_SHIFTS; ++z) {
-                    blacklistedChunks.add(BlockVector2.at(x, z));
-                }
-            }
-
-            blacklistedChunks.forEach(chunk -> {
-                int chunkX = chunk.getX();
-                int chunkZ = chunk.getZ();
-
-                int regionX = chunkX >> 5;
-                int regionZ = chunkZ >> 5;
-
-                blacklistedRegions.add(BlockVector2.at(regionX, regionZ));
-            });
-        });
-
-        File regionRoot = new File(worldName + File.separator + "region");
-        MCAQueue queue = new MCAQueue(worldName, regionRoot, true);
-
-        final MCAFile[] lastRegionFile = new MCAFile[1];
-
-        queue.filterWorld(new MCAFilter() {
-            @Override
-            public MCAFile applyFile(MCAFile mca) {
-                int mcaX = mca.getX();
-                int mcaZ = mca.getZ();
-
-                BlockVector2 mcaVector = BlockVector2.at(mcaX, mcaZ);
-
-                for (BlockVector2 region : blacklistedRegions) {
-                    if (mcaVector.equals(region)) {
-                        lastRegionFile[0] = mca;
-                        return mca;
+                for (int x = min.getBlockX() >> CHUNK_SHIFTS; x <= max.getBlockX() >> CHUNK_SHIFTS; ++x) {
+                    for (int z = min.getBlockZ() >> CHUNK_SHIFTS; z <= max.getBlockZ() >> CHUNK_SHIFTS; ++z) {
+                        blacklistedChunks.add(BlockVector2.at(x, z));
                     }
                 }
 
-                mca.close(ForkJoinPool.commonPool());
-                mca.getFile().delete();
+                blacklistedChunks.forEach(chunk -> {
+                    int chunkX = chunk.getX();
+                    int chunkZ = chunk.getZ();
 
-                sender.sendMessage("Deleted region (" + mcaX + ";" + mcaZ + ")");
-                return null;
-            }
+                    int regionX = chunkX >> REGION_SHIFTS;
+                    int regionZ = chunkZ >> REGION_SHIFTS;
 
-            @Override
-            public boolean appliesChunk(int cx, int cz) {
-                if (!blacklistedChunks.contains(BlockVector2.at(cx, cz))) {
+                    blacklistedRegions.add(BlockVector2.at(regionX, regionZ));
+                });
+            });
+
+            File regionRoot = new File(worldName + File.separator + "region");
+            MCAQueue queue = new MCAQueue(worldName, regionRoot, true);
+
+            final MCAFile[] lastRegionFile = new MCAFile[1];
+
+            sender.sendMessage(ChatColor.YELLOW + "Deleting all chunks that are not touch region using FastAsyncWorldEdit FaweQueue...");
+
+            queue.filterWorld(new MCAFilter() {
+                @Override
+                public MCAFile applyFile(MCAFile mca) {
+                    int mcaX = mca.getX();
+                    int mcaZ = mca.getZ();
+
+                    BlockVector2 mcaVector = BlockVector2.at(mcaX, mcaZ);
+
+                    for (BlockVector2 region : blacklistedRegions) {
+                        if (mcaVector.equals(region)) {
+                            lastRegionFile[0] = mca;
+                            return mca;
+                        }
+                    }
+
+                    mca.close(ForkJoinPool.commonPool());
+                    mca.getFile().delete();
+
+                    sender.sendMessage(ChatColor.YELLOW + "Deleted region (" + mcaX + ";" + mcaZ + ")");
+                    return null;
+                }
+
+                @Override
+                public boolean appliesChunk(int cx, int cz) {
+                    if (!blacklistedChunks.contains(BlockVector2.at(cx, cz))) {
                         try {
                             MCAFile mcaFile = lastRegionFile[0];
 
                             RandomAccessFile unChunk = new RandomAccessFile(mcaFile.getFile(), "rwd");
 
-                            int offsetX = mcaFile.getX() << 5;
-                            int offsetZ = mcaFile.getZ() << 5;
+                            int offsetX = mcaFile.getX() << REGION_SHIFTS;
+                            int offsetZ = mcaFile.getZ() << REGION_SHIFTS;
 
                             long wipePos = 4 * ((cx - offsetX) + ((cz - offsetZ) * 32));
                             unChunk.seek(wipePos);
                             unChunk.writeInt(0);
 
                             unChunk.close();
-                            sender.sendMessage("Deleted chunk (" + cx + ";" + cz + ")");
+                            sender.sendMessage(ChatColor.YELLOW + "Deleted chunk (" + cx + ";" + cz + ")");
                         } catch (IOException e) {
-                            plugin.getLogger().severe("Error deleting chunk (" + cx + ";" + cz + ")");
+                            plugin.getLogger().severe(ChatColor.RED + "Error deleting chunk (" + cx + ";" + cz + ")");
                             e.printStackTrace();
                         }
-
+                    }
+                    return false;
                 }
-                return false;
-            }
 
-        });
+            });
 
-        sender.sendMessage("Conversion task finished !");
+            sender.sendMessage(ChatColor.GREEN + "Conversion task finished !");
 
-        return true;
+            return true;
+        } catch (ResolvingRegionsException e) {
+            sender.sendMessage(ChatColor.RED + "Error during resolving world regions: " + e.getCause());
+        }
+
+        return false;
     }
 }
